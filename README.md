@@ -27,7 +27,7 @@ call "%cd%\打包为exe.bat"
 ```
 4. 运行*epub服务器.exe*,根据提示输入ip和端口号(默认localhost:10086)
 ```cmd
-epub服务器.exe
+"%cd%\epub服务器.exe"
 ```
 5. 打开浏览器访问`http://{输入的ip}:{输入的端口号}/`开始阅读自己的epub电子书
 ```cmd
