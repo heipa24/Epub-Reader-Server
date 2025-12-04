@@ -1,6 +1,6 @@
 ﻿# Epub-Reader-Server
 
-《为了一叠醋包的一盘饺子》
+《为了一碟醋包的一盘饺子》
 
 一个基于 Python 的简易本地 EPUB 电子书阅读服务器。它将 [epubjs-reader](https://github.com/futurepress/epubjs-reader/) 包装为一个服务器,允许通过浏览器阅读 EPUB 电子书,自动在服务端记录并在不同设备之间同步阅读进度。
 
