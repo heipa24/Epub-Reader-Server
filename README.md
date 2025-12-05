@@ -6,14 +6,19 @@
 
 - 仓库基于 [epubjs-reader](https://github.com/futurepress/epubjs-reader/) 修改
 - 仓库的 reader 目录中除了index.html和reader.js,其它与仓库 [epubjs-reader/reader](https://github.com/futurepress/epubjs-reader/tree/master/reader) 相同
-- 运行环境:[在path中的python3.4+](https://www.python.org/),[pyinstaller(pip install pyinstaller)](https://pyinstaller.org/)
+- 运行环境:[Windows7+](https://support.microsoft.com/zh-cn/welcometowindows),[在path中的python3.4+](https://www.python.org/),[pyinstaller(pip install pyinstaller)](https://pyinstaller.org/)
 
 ## 使用
 
-1. 克隆仓库
+1. 克隆仓库(安装了git的话)
 ```cmd
 git clone https://github.com/heipa24/Epub-Reader-Server.git
 cd Epub-Reader-Server
+```
+没有安装git但是系统在Windows8及以上的话
+```cmd
+powershell -Command "$zip='file.zip'; Invoke-WebRequest -Uri https://github.com/heipa24/Epub-Reader-Server/archive/refs/heads/master.zip -OutFile $zip; Expand-Archive -Path $zip -DestinationPath %cd% -Force; Remove-Item $zip"
+cd Epub-Reader-Server-master
 ```
 2. 将自己的epub重命名`book.epub`然后替换`reader\epub\book.epub`文件
 ```cmd
@@ -25,7 +30,7 @@ call "%cd%\打包为exe.bat"
 ``` 
 4. 运行*{书名}.exe*会自动使用*打包为exe.bat*配置的书名,ip,端口号
 ```cmd
-"%cd%\{书名}.exe"
+"%cd%\{输入的书名}.exe"
 ```
 5. 打开浏览器访问`http://{输入的ip}:{输入的端口号}/`开始阅读自己的epub电子书
 ```cmd
