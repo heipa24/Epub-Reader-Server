@@ -259,6 +259,7 @@ def main():
 
     # 创建HTTP服务器
     with socketserver.TCPServer((ip, port), CORSRequestHandler) as httpd:
+        httpd.allow_reuse_address = True
         display_ip = 'localhost' if ip == '127.0.0.1' else ip
         print(f"服务器启动在 http://{display_ip}:{port}")
         print(f"服务目录: {reader_dir}")
