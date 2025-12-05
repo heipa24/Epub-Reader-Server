@@ -1,77 +1,52 @@
 @echo off
-chcp 65001 >nul
-
-:: æ£€æŸ¥Pythonæ˜¯å¦å®‰è£…
-python --version >nul 2>&1
+chcp 936 >nul
+setlocal enabledelayedexpansion
+:: ¼ì²éPythonÊÇ·ñ°²×°¼°°æ±¾
+python --version
 if errorlevel 1 (
-    echo é”™è¯¯: æœªæ£€æµ‹åˆ°Pythonï¼Œè¯·å…ˆå®‰è£…Python 3.6+
-    echo ä¸‹è½½åœ°å€: https://www.python.org/downloads/
+    echo Î´¼ì²âµ½Python
+    echo ÇëÏÈ°²×°Python£¨ÀíÂÛ3.4ÒÔÉÏ¾Í¹»ÁË,µ«³ÌÐòÔÚ3.10¿ª·¢£©
+    echo Èç¹ûÒÑ°²×°Pythonµ«Ã»¼ì²âÔòÐèÒª½«PythonÌí¼Óµ½PATH£¨µÚÒ»´Î°²×°Ôò¹´Ñ¡Add Python 3.x to PATH£©
+    echo ÏÂÔØµØÖ·: https://www.python.org/downloads/
+    pause
+    start "" "https://www.python.org/downloads/"
+    exit /b 1
+)
+
+:: ¼ì²éPython°æ±¾
+for /f "tokens=2" %%i in ('python --version 2^>^&1') do set "python_version=%%i"
+
+:: ¼ì²éPythonÊÇ·ñ3.4+
+python -c "import sys; exit(0 if sys.version_info >= (3, 4) else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo Python°æ±¾ÐèÒª3.4»ò¸ü¸ß°æ±¾
     pause
     exit /b 1
 )
 
-:: æ£€æŸ¥PyInstalleræ˜¯å¦å®‰è£…
+:: ¼ì²éPyInstallerÊÇ·ñ°²×°
 pip show pyinstaller >nul 2>&1
 if errorlevel 1 (
-    echo æ­£åœ¨å®‰è£…PyInstaller...
+    @echo on
     pip install pyinstaller
-    if errorlevel 1 (
-        echo é”™è¯¯: PyInstallerå®‰è£…å¤±è´¥
+    @if errorlevel 1 (
+        @echo off
+        chcp 65001 >nul
+        echo ´íÎó: PyInstaller°²×°Ê§°Ü
         pause
         exit /b 1
     )
+    @echo off
 )
 
-:: æ£€æŸ¥readerç›®å½•æ˜¯å¦å­˜åœ¨
-if not exist "reader" (
-    echo é”™è¯¯: æ‰¾ä¸åˆ°readerç›®å½•
-    echo è¯·ç¡®ä¿readerç›®å½•ä¸Žbatæ–‡ä»¶åœ¨åŒä¸€ç›®å½•ä¸‹
+:: ¼ì²ébuild.pyÊÇ·ñ´æÔÚ
+if not exist "build.py" (
+    echo ´íÎó: ÕÒ²»µ½build.pyÎÄ¼þ
     pause
     exit /b 1
 )
 
-:: æ£€æŸ¥index.htmlæ˜¯å¦å­˜åœ¨
-if not exist "reader\index.html" (
-    echo é”™è¯¯: readerç›®å½•ä¸­æ²¡æœ‰index.htmlæ–‡ä»¶
-    pause
-    exit /b 1
-)
-
-:: æ£€æŸ¥æœåŠ¡å™¨.pyæ˜¯å¦å­˜åœ¨
-if not exist "epubæœåŠ¡å™¨.py" (
-    echo é”™è¯¯: æ‰¾ä¸åˆ°epubæœåŠ¡å™¨.pyæ–‡ä»¶
-    pause
-    exit /b 1
-)
-
-
-:: å¼€å§‹æ‰“åŒ…
-@echo on
-pyinstaller build.spec
-
-@if errorlevel 1 (goto echo)
-
-@echo off
-
-
-:: ç§»åŠ¨exeæ–‡ä»¶åˆ°å½“å‰ç›®å½•
-if exist "dist\epubæœåŠ¡å™¨.exe" (
-    echo ç§»åŠ¨å¯æ‰§è¡Œæ–‡ä»¶...
-    move "dist\epubæœåŠ¡å™¨.exe" "epubæœåŠ¡å™¨.exe" >nul
-    echo æ‰“åŒ…å®Œæˆ! å¯æ‰§è¡Œæ–‡ä»¶å·²ç”Ÿæˆ: epubæœåŠ¡å™¨.exe
-)
-
-:cleanup
-:: æ¸…ç†ä¸´æ—¶æ–‡ä»¶
-echo æ¸…ç†ä¸´æ—¶æ–‡ä»¶...
-if exist "build" rmdir /s /q "build" >nul 2>&1
-if exist "dist" rmdir /s /q "dist" >nul 2>&1
-if exist "__pycache__" rmdir /s /q "__pycache__" >nul 2>&1
+:: µ÷ÓÃPython¹¹½¨½Å±¾
+python build.py
 
 pause
-exit /b
-
-:echo
-@echo off
-echo é”™è¯¯: æ‰“åŒ…å¤±è´¥
-goto cleanup

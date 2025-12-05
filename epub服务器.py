@@ -4,8 +4,12 @@ import webbrowser
 import os
 import sys
 import json
+import argparse
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+
+# 全局变量，用于存储书名
+BOOK_TITLE = "history"
 
 def get_resource_path(relative_path):
     """获取资源的绝对路径，支持开发模式和打包模式"""
@@ -17,6 +21,24 @@ def get_resource_path(relative_path):
         base_path = Path(__file__).parent
     
     return Path(base_path) / relative_path
+
+def get_config():
+    """获取配置文件（打包模式下从资源路径读取）"""
+    try:
+        if getattr(sys, 'frozen', False):
+            # 打包模式：从资源路径读取config.json
+            config_path = get_resource_path("config.json")
+        else:
+            # 开发模式：从当前目录读取config.json
+            config_path = Path("config.json")
+        
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"读取配置文件失败: {e}")
+    
+    return None
 
 def get_history_dir():
     """获取历史记录目录"""
@@ -34,9 +56,26 @@ def get_history_dir():
     history_dir.mkdir(exist_ok=True)
     return history_dir
 
+def clean_filename(filename):
+    """清理文件名中的非法字符"""
+    invalid_chars = '<>:"/\\|?*.'
+    clean_name = filename
+    for char in invalid_chars:
+        clean_name = clean_name.replace(char, '_')
+    
+    # 移除首尾空格和点
+    clean_name = clean_name.strip().strip('.')
+    return clean_name if clean_name else "history"
+
+def get_history_filename():
+    """获取历史记录文件名（基于书名）"""
+    global BOOK_TITLE
+    clean_title = clean_filename(BOOK_TITLE)
+    return f"{clean_title}.json"
+
 def load_history():
     """加载历史记录"""
-    history_file = get_history_dir() / "history.json"
+    history_file = get_history_dir() / get_history_filename()
     if history_file.exists():
         try:
             with open(history_file, 'r', encoding='utf-8') as f:
@@ -47,7 +86,7 @@ def load_history():
 
 def save_history(history_data):
     """保存历史记录"""
-    history_file = get_history_dir() / "history.json"
+    history_file = get_history_dir() / get_history_filename()
     try:
         with open(history_file, 'w', encoding='utf-8') as f:
             json.dump(history_data, f, ensure_ascii=False, indent=2)
@@ -55,12 +94,11 @@ def save_history(history_data):
         print(f"保存历史记录失败: {e}")
 
 def update_history(book_path, cfi):
-    """更新历史记录"""
+    """保存历史记录"""
     history = load_history()
     history['last_read'] = {
         'book_path': book_path,
-        'cfi': cfi,
-        'timestamp': os.path.getmtime(book_path) if os.path.exists(book_path) else 0
+        'cfi': cfi
     }
     save_history(history)
 
@@ -69,10 +107,7 @@ def get_last_position(book_path):
     history = load_history()
     if 'last_read' in history:
         last_read = history['last_read']
-        # 检查是否是同一本书（通过文件修改时间判断）
-        current_timestamp = os.path.getmtime(book_path) if os.path.exists(book_path) else 0
-        if (last_read.get('book_path') == book_path and 
-            last_read.get('timestamp') == current_timestamp):
+        if last_read.get('book_path') == book_path:
             return last_read.get('cfi')
     return None
 
@@ -190,7 +225,9 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(content.encode('utf-8'))
             
         except Exception as e:
-            self.send_error(500, f"Internal server error: {str(e)}")
+            # 修复HTTP头中的Unicode编码问题
+            error_msg = str(e).encode('ascii', 'ignore').decode('ascii')
+            self.send_error(500, f"Internal server error: {error_msg}")
     
     def do_POST(self):
         """处理POST请求，用于保存历史记录"""
@@ -223,7 +260,86 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         super().end_headers()
 
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='ePub服务器')
+    parser.add_argument('--title', type=str, help='书名')
+    parser.add_argument('--ip', type=str, help='服务器IP地址')
+    parser.add_argument('--port', type=int, help='服务器端口')
+    return parser.parse_args()
+
+def is_packaged():
+    """检查是否在打包模式下运行"""
+    return getattr(sys, 'frozen', False)
+
+def get_user_input():
+    """获取用户输入（仅在独立运行时使用）"""
+    print("\n" + "="*50)
+    print("ePub阅读器服务器配置")
+    print("="*50)
+    
+    # 获取书名
+    book_title = input("请输入书名（直接回车使用默认值）: ").strip()
+    if not book_title:
+        book_title = "history"
+    
+    # 获取服务器IP
+    server_ip = input("请输入服务器IP（直接回车为localhost）: ").strip()
+    if not server_ip:
+        server_ip = "127.0.0.1"
+    
+    # 获取服务器端口
+    server_port_input = input("请输入服务器端口（直接回车为10086）: ").strip()
+    if server_port_input:
+        try:
+            server_port = int(server_port_input)
+        except ValueError:
+            print("输入无效，使用默认端口10086")
+            server_port = 10086
+    else:
+        server_port = 10086
+    
+    return book_title, server_ip, server_port
+
 def main():
+    global BOOK_TITLE
+    
+    # 解析命令行参数
+    args = parse_arguments()
+    
+    # 获取配置（打包模式下从配置文件读取）
+    config = None
+    if is_packaged():
+        config = get_config()
+    
+    # 设置书名（优先级：命令行参数 > 配置文件 > 默认值）
+    if args.title:
+        BOOK_TITLE = args.title
+        print(f"使用命令行指定的书名: {BOOK_TITLE}")
+    elif config and config.get('book_title'):
+        BOOK_TITLE = config['book_title']
+    elif is_packaged():
+        BOOK_TITLE = "history"
+    else:
+        BOOK_TITLE = "history"
+    
+    # 获取IP和端口（优先级：命令行参数 > 配置文件 > 默认值）
+    if args.ip and args.port:
+        ip = args.ip
+        port = args.port
+        print(f"使用命令行指定的服务器配置: {ip}:{port}")
+    elif config and config.get('server_ip') and config.get('server_port'):
+        ip = config['server_ip']
+        port = config['server_port']
+    elif is_packaged():
+        ip = "127.0.0.1"
+        port = 10086
+    else:
+        # 开发模式下，如果也没有提供IP和端口参数，则询问用户
+        book_title, ip, port = get_user_input()
+        if book_title != "history":
+            BOOK_TITLE = book_title
+    
     # 获取reader目录路径
     reader_dir = get_resource_path("reader")
     
@@ -243,26 +359,19 @@ def main():
     # 创建历史记录目录
     history_dir = get_history_dir()
     print(f"历史记录目录: {history_dir}")
+    print(f"历史记录文件: {get_history_filename()}")
     
     # 切换到reader目录
     os.chdir(reader_dir)
     
-    # 获取用户输入的IP和端口
-    ip_input = input("请输入服务器IP（直接回车为localhost）: ").strip()
-    ip = '127.0.0.1' if not ip_input else ip_input
+    display_ip = 'localhost' if ip == '127.0.0.1' else ip
     
-    port_input = input("请输入服务器端口（直接回车为10086）: ").strip()
-    try:
-        port = int(port_input) if port_input else 10086
-    except ValueError:
-        port = 10086  # 输入非数字时使用默认端口
-
     # 创建HTTP服务器
     with socketserver.TCPServer((ip, port), CORSRequestHandler) as httpd:
         httpd.allow_reuse_address = True
-        display_ip = 'localhost' if ip == '127.0.0.1' else ip
         print(f"服务器启动在 http://{display_ip}:{port}")
         print(f"服务目录: {reader_dir}")
+        print(f"当前书籍: {BOOK_TITLE}")
         print("正在打开浏览器...")
         print("按 Ctrl+C 停止服务器")
         
@@ -274,6 +383,8 @@ def main():
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\n服务器已停止")
+        except Exception as e:
+            print(f"\n服务器错误: {e}")
 
 if __name__ == "__main__":
     main()
