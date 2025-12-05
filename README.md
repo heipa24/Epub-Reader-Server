@@ -10,12 +10,13 @@
 
 ## 使用
 
-### 1.克隆仓库(安装了git的话)
+### 1.克隆仓库
+安装了git
 ```cmd
 git clone https://github.com/heipa24/Epub-Reader-Server.git
 cd Epub-Reader-Server
 ```
-没有安装git但系统在Windows8及以上的话
+没有安装git但系统在Windows8及以上
 ```cmd
 powershell -Command "$zip='file.zip'; Invoke-WebRequest -Uri https://github.com/heipa24/Epub-Reader-Server/archive/refs/heads/master.zip -OutFile $zip; Expand-Archive -Path $zip -DestinationPath %cd% -Force; Remove-Item $zip"
 cd Epub-Reader-Server-master
