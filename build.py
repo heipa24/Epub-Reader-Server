@@ -40,7 +40,7 @@ def get_user_input():
         return None
     
     # 获取服务器IP
-    server_ip = input("请输入服务器IP（直接回车为localhost）: ").strip()
+    server_ip = input("请输入服务器IP（直接回车为127.0.0.1）: ").strip()
     if not server_ip:
         server_ip = "127.0.0.1"
     

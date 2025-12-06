@@ -8,9 +8,6 @@ import argparse
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-# 全局变量，用于存储书名
-BOOK_TITLE = "history"
-
 def get_resource_path(relative_path):
     """获取资源的绝对路径，支持开发模式和打包模式"""
     try:
@@ -274,15 +271,6 @@ def is_packaged():
 
 def get_user_input():
     """获取用户输入（仅在独立运行时使用）"""
-    print("\n" + "="*50)
-    print("ePub阅读器服务器配置")
-    print("="*50)
-    
-    # 获取书名
-    book_title = input("请输入书名（直接回车使用默认值）: ").strip()
-    if not book_title:
-        book_title = "history"
-    
     # 获取服务器IP
     server_ip = input("请输入服务器IP（直接回车为localhost）: ").strip()
     if not server_ip:
@@ -299,7 +287,7 @@ def get_user_input():
     else:
         server_port = 10086
     
-    return book_title, server_ip, server_port
+    return server_ip, server_port
 
 def main():
     global BOOK_TITLE
@@ -336,9 +324,8 @@ def main():
         port = 10086
     else:
         # 开发模式下，如果也没有提供IP和端口参数，则询问用户
-        book_title, ip, port = get_user_input()
-        if book_title != "history":
-            BOOK_TITLE = book_title
+        ip, port = get_user_input()
+        BOOK_TITLE = "history"
     
     # 获取reader目录路径
     reader_dir = get_resource_path("reader")
