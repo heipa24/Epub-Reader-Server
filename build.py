@@ -30,21 +30,94 @@ def check_requirements():
     
     return True
 
+def clean_directories_before_build():
+    """打包前清理目录"""
+    
+    # 删除reader\tmp目录
+    tmp_dir = Path("reader") / "tmp"
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        print("已清理目录: reader/tmp")
+    
+    # 检查并删除reader\epub\staging目录
+    staging_dir = Path("reader") / "epub" / "staging"
+    reparse_point = staging_dir / ".reparse_point"
+    
+    # 记录是否清理了staging目录
+    cleaned_staging = False
+    
+    if reparse_point.exists():
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            print("已清理staging重解析点")
+            cleaned_staging = True
+    
+    return cleaned_staging
+
 def get_user_input():
     """获取用户输入"""
     
-    # 获取书名
-    book_title = input("请输入书名（建议不同的书使用不同的端口）: ").strip()
-    if not book_title:
-        print("错误: 书名不能为空")
+    # 获取书名或路径
+    user_input = input("请输入书名或拖入epub文件（建议不同的书使用不同的端口）: ").strip()
+    if not user_input:
+        print("错误: 输入不能为空")
         return None
+    
+    epub_replaced = False
+    epub_source_path = None
+    
+    # 检查输入是否为文件路径
+    if Path(user_input).exists() and Path(user_input).is_file():
+        epub_source_path = Path(user_input)
+        
+        # 检查目标epub文件大小
+        target_epub = Path("reader") / "epub" / "book.epub"
+        if target_epub.exists() and target_epub.stat().st_size > 1024:  # 大于1KB
+            response = input("reader/epub/book.epub非空，是否继续? (y/N): ").strip().lower()
+            if response not in ['y', 'yes']:
+                print("操作已取消")
+                return None
+            
+            # 替换epub文件
+            try:
+                shutil.copy2(epub_source_path, target_epub)
+                print(f"已替换epub文件: {target_epub}")
+                epub_replaced = True
+            except Exception as e:
+                print(f"错误: 替换epub文件失败: {e}")
+                return None
+            
+            # 尝试使用ebooklib获取书名
+            book_title = None
+            try:
+                # 动态导入ebooklib
+                import ebooklib
+                from ebooklib import epub
+                book = epub.read_epub(str(epub_source_path))
+                # 尝试从DC元数据中获取标题
+                title_items = book.get_metadata('DC', 'title')
+                if title_items:
+                    book_title = title_items[0][0]  # 取第一个标题
+                else:
+                    book_title = None
+            except Exception as e:
+                print(f"警告: 无法使用ebooklib获取书名: {e}")
+            
+            if not book_title:
+                book_title = input("请输入书名: ").strip()
+        else:
+            book_title = user_input
+        
+        if not book_title:
+            print("错误: 书名不能为空")
+            return None
     
     # 获取服务器IP
     server_ip = input("请输入服务器IP（直接回车为127.0.0.1）: ").strip()
     if not server_ip:
         server_ip = "127.0.0.1"
     
-    # 获取服务器端口（修改部分）
+    # 获取服务器端口
     server_port_input = input("请输入服务器端口（直接回车端口在55000-65535之间随机）: ").strip()
     if server_port_input:
         try:
@@ -71,7 +144,9 @@ def get_user_input():
         'book_title': book_title,
         'clean_title': clean_title,
         'server_ip': server_ip,
-        'server_port': server_port
+        'server_port': server_port,
+        'epub_replaced': epub_replaced,
+        'epub_source_path': str(epub_source_path) if epub_source_path else None
     }
 
 def clean_filename(filename):
@@ -84,6 +159,48 @@ def clean_filename(filename):
     # 移除首尾空格和点
     clean_name = clean_name.strip().strip('.')
     return clean_name
+
+def setup_staging_symlink():
+    """重新创建staging目录的符号链接/交接点"""
+    script_dir = Path.cwd()
+    script_staging_dir = script_dir / "staging"
+    reader_staging_dir = script_dir / "reader" / "epub" / "staging"
+    
+    # 创建脚本目录下的staging目录（如果不存在）
+    script_staging_dir.mkdir(exist_ok=True)
+    
+    # 创建符号链接/交接点
+    try:
+        if os.name == 'nt':  # Windows
+            # 尝试创建交接点
+            import subprocess
+            try:
+                subprocess.run(['cmd', '/c', 'mklink', '/J', 
+                              str(reader_staging_dir), str(script_staging_dir)], 
+                            check=True, capture_output=True)
+                print(f"已创建交接点: {reader_staging_dir} -> {script_staging_dir}")
+            except subprocess.CalledProcessError:
+                # 交接点失败，尝试符号链接
+                reader_staging_dir.unlink(missing_ok=True)
+                os.symlink(script_staging_dir, reader_staging_dir, target_is_directory=True)
+                print(f"已创建符号链接: {reader_staging_dir} -> {script_staging_dir}")
+        else:  # Unix-like系统
+            os.symlink(script_staging_dir, reader_staging_dir, target_is_directory=True)
+            print(f"已创建符号链接: {reader_staging_dir} -> {script_staging_dir}")
+        
+        # 创建.reparse_point文件并检查存在性
+        reparse_file = script_staging_dir / ".reparse_point"
+        reparse_file.touch()
+        check_file = reader_staging_dir / ".reparse_point"
+        if check_file.exists():
+            print(f"符号链接验证通过: {check_file}")
+        else:
+            print(f"警告: 符号链接可能未正确工作，未找到 {check_file}")
+    except Exception as e:
+        print(f"创建符号链接失败: {e}")
+        return False
+    
+    return True
 
 def generate_spec_file(config):
     """生成PyInstaller的spec文件"""
@@ -174,7 +291,7 @@ def run_pyinstaller(spec_file):
         print(f"错误: 执行PyInstaller时发生异常: {e}")
         return False
 
-def move_and_cleanup(config):
+def move_and_cleanup(config, cleaned_staging):
     """移动生成的文件并清理临时文件"""
     clean_title = config['clean_title']
     
@@ -188,6 +305,25 @@ def move_and_cleanup(config):
     else:
         print(f"警告: 找不到生成的可执行文件: {exe_source}")
         return False
+    
+    # 如果替换了epub文件，则在打包完成后将其替换为空文件
+    if config.get('epub_replaced', False):
+        target_epub = Path("reader") / "epub" / "book.epub"
+        try:
+            # 创建空文件
+            with open(target_epub, 'w') as f:
+                f.write('')
+            print("已将reader/epub/book.epub替换为空文件")
+        except Exception as e:
+            print(f"警告: 替换epub文件为空文件失败: {e}")
+    
+    # 如果之前清理了staging目录，则重新创建符号链接
+    if cleaned_staging:
+        print("重新创建staging目录符号链接...")
+        if setup_staging_symlink():
+            print("staging目录符号链接已恢复")
+        else:
+            print("警告: 重新创建staging目录符号链接失败")
     
     # 清理临时文件
     cleanup_temp_files()
@@ -220,6 +356,9 @@ def main():
         if not check_requirements():
             return 1
         
+        # 打包前清理目录，并记录是否清理了staging目录
+        cleaned_staging = clean_directories_before_build()
+        
         # 获取用户输入
         config = get_user_input()
         if not config:
@@ -229,6 +368,8 @@ def main():
         print(f"  书名: {config['clean_title']}")
         print(f"  服务器IP: {config['server_ip']}")
         print(f"  服务器端口: {config['server_port']}")
+        if config.get('epub_source_path'):
+            print(f"  EPUB源文件: {config['epub_source_path']}")
         
         # 创建配置文件
         create_config_file(config)
@@ -241,7 +382,7 @@ def main():
             return 1
         
         # 移动文件和清理
-        if not move_and_cleanup(config):
+        if not move_and_cleanup(config, cleaned_staging):
             return 1
         
         # 显示完成信息

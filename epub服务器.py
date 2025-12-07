@@ -5,16 +5,19 @@ import os
 import sys
 import json
 import argparse
+import shutil
+import threading
+import time
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 def get_resource_path(relative_path):
-    """获取资源的绝对路径，支持开发模式和打包模式"""
+    """获取资源的绝对路径，支持调试模式和打包模式"""
     try:
         # 打包后的资源路径
         base_path = sys._MEIPASS
     except Exception:
-        # 开发模式的路径
+        # 调试模式的路径
         base_path = Path(__file__).parent
     
     return Path(base_path) / relative_path
@@ -26,7 +29,7 @@ def get_config():
             # 打包模式：从资源路径读取config.json
             config_path = get_resource_path("config.json")
         else:
-            # 开发模式：从当前目录读取config.json
+            # 调试模式：从当前目录读取config.json
             config_path = Path("config.json")
         
         if config_path.exists():
@@ -44,7 +47,7 @@ def get_history_dir():
         if getattr(sys, 'frozen', False):
             base_dir = Path(sys.executable).parent
         else:
-            # 开发模式保存到脚本所在目录
+            # 调试模式保存到脚本所在目录
             base_dir = Path(__file__).parent
     except Exception:
         base_dir = Path.cwd()
@@ -91,22 +94,77 @@ def save_history(history_data):
         print(f"保存历史记录失败: {e}")
 
 def update_history(book_path, cfi):
-    """保存历史记录"""
+    """保存历史记录（仅保存CFI信息）"""
     history = load_history()
     history['last_read'] = {
-        'book_path': book_path,
         'cfi': cfi
     }
     save_history(history)
 
 def get_last_position(book_path):
-    """获取上次阅读位置"""
+    """获取上次阅读位置（不再验证book_path）"""
     history = load_history()
     if 'last_read' in history:
-        last_read = history['last_read']
-        if last_read.get('book_path') == book_path:
-            return last_read.get('cfi')
+        return history['last_read'].get('cfi')
     return None
+
+def setup_epub_file(epub_path, book_title, reader_dir):
+    """
+    设置epub文件：
+    - 如果是绝对路径：复制到reader/tmp目录，返回tmp/{book_title}.epub
+    - 如果是相对路径：检查文件是否存在，返回原路径
+    """
+    if not epub_path:
+        return "epub/book.epub"  # 默认路径
+    
+    epub_path = Path(epub_path)
+    
+    # 如果是绝对路径
+    if epub_path.is_absolute():
+        # 创建tmp目录
+        tmp_dir = reader_dir / "tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        
+        # 生成目标文件名
+        clean_title = clean_filename(book_title)
+        target_file = tmp_dir / f"{clean_title}.epub"
+        
+        # 复制文件
+        try:
+            shutil.copy2(epub_path, target_file)
+            print(f"已复制电子书到: {target_file}")
+            return f"tmp/{clean_title}.epub"
+        except Exception as e:
+            print(f"复制电子书失败: {e}")
+            return "epub/book.epub"
+    
+    # 如果是相对路径
+    else:
+        # 检查文件是否存在
+        full_path = reader_dir / epub_path
+        if full_path.exists():
+            print(f"使用电子书: {full_path}")
+            return str(epub_path)
+        else:
+            print(f"电子书不存在: {full_path}")
+            return "epub/book.epub"
+
+def cleanup_temp_dir(reader_dir):
+    """清理临时目录"""
+    tmp_dir = reader_dir / "tmp"
+    if tmp_dir.exists():
+        try:
+            shutil.rmtree(tmp_dir)
+            print(f"已清理临时目录: {tmp_dir}")
+        except Exception as e:
+            print(f"清理临时目录失败: {e}")
+ 
+    Overkill_count = 0
+    while tmp_dir.exists():
+        Overkill_count += 1
+        print(f"临时目录没删干净, 正在第{Overkill_count}次鞭尸")
+        shutil.rmtree(tmp_dir)
+        print(f"已成功清理临时目录: {tmp_dir}")
 
 class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -135,21 +193,23 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # 解析URL参数获取书籍路径
-            parsed_path = urlparse(self.path)
-            query_params = parse_qs(parsed_path.query)
-            book_path = (query_params.get('bookPath', [None])[0] or 
-                         query_params.get('book', [None])[0] or 
-                         query_params.get('b', [None])[0] or 
-                         query_params.get('url', [None])[0] or 
-                         "epub/book.epub")  # 默认路径
+            # 使用全局的书籍路径
+            global CURRENT_BOOK_PATH
+            book_path = CURRENT_BOOK_PATH
             
             # 获取上次阅读位置
             last_cfi = get_last_position(book_path)
             
-            # 注入历史记录恢复代码
+            # 注入历史记录恢复代码和书籍路径覆盖代码
             injected_code = f"""
             <script>
+            // 覆盖书籍路径获取函数，强制使用服务器指定的路径
+            window.getBookParam = function() {{
+                const serverBookPath = {json.dumps(book_path)};
+                console.log('使用服务器指定的书籍路径:', serverBookPath);
+                return serverBookPath;
+            }};
+            
             // 历史记录恢复
             document.addEventListener('DOMContentLoaded', function() {{
                 const lastCFI = {json.dumps(last_cfi)};
@@ -162,11 +222,21 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                     const originalEBookInit = window.ePubReader;
                     window.ePubReader = function(path, options) {{
                         options = options || {{}};
-                        if (path === bookPath) {{
+                        // 强制使用服务器指定的路径
+                        path = bookPath;
+                        if (lastCFI) {{
                             options.previousLocationCfi = lastCFI;
                             console.log('设置上次阅读位置:', lastCFI);
                         }}
                         return originalEBookInit(path, options);
+                    }};
+                    window.ePubReader.prototype = originalEBookInit.prototype;
+                }} else {{
+                    // 没有历史记录时，也确保使用正确的路径
+                    const originalEBookInit = window.ePubReader;
+                    window.ePubReader = function(path, options) {{
+                        // 强制使用服务器指定的路径
+                        return originalEBookInit(bookPath, options);
                     }};
                     window.ePubReader.prototype = originalEBookInit.prototype;
                 }}
@@ -261,6 +331,7 @@ def parse_arguments():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='ePub服务器')
     parser.add_argument('--title', type=str, help='书名')
+    parser.add_argument('--epub', type=str, help='ePub电子书路径（绝对路径或相对路径）')
     parser.add_argument('--ip', type=str, help='服务器IP地址')
     parser.add_argument('--port', type=int, help='服务器端口')
     return parser.parse_args()
@@ -289,8 +360,61 @@ def get_user_input():
     
     return server_ip, server_port
 
+def keyboard_listener(httpd, reader_dir):
+    """监听键盘输入，ESC键退出"""
+    try:
+        # 尝试使用msvcrt（Windows）
+        import msvcrt
+        while True:
+            if msvcrt.kbhit():
+                key = msvcrt.getch()
+                if key == b'\x1b':  # ESC键
+                    print("\n收到ESC键，正在退出服务器...")
+                    break
+            time.sleep(0.1)
+    except ImportError:
+        # 非Windows系统使用其他方法
+        try:
+            import termios
+            import tty
+            import select
+            
+            # 设置非阻塞输入
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                while True:
+                    # 检查是否有输入
+                    if select.select([sys.stdin], [], [], 0.1)[0]:
+                        key = sys.stdin.read(1)
+                        if key == '\x1b':  # ESC键
+                            print("\n收到ESC键，正在退出服务器...")
+                            break
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except ImportError:
+            # 如果都不支持，使用简单的input方式
+            print("按ESC键退出服务器...")
+            while True:
+                try:
+                    # 使用超时输入
+                    import select
+                    if select.select([sys.stdin], [], [], 1)[0]:
+                        line = sys.stdin.readline()
+                        if line.strip().lower() in ['esc', 'exit', 'quit']:
+                            print("正在退出服务器...")
+                            break
+                except:
+                    # 如果select不支持，使用简单循环
+                    time.sleep(1)
+    # 关闭服务器
+    httpd.shutdown()
+    # 清理临时目录
+    cleanup_temp_dir(reader_dir)
+
 def main():
-    global BOOK_TITLE
+    global BOOK_TITLE, CURRENT_BOOK_PATH
     
     # 解析命令行参数
     args = parse_arguments()
@@ -323,7 +447,7 @@ def main():
         ip = "127.0.0.1"
         port = 10086
     else:
-        # 开发模式下，如果也没有提供IP和端口参数，则询问用户
+        # 调试模式下，如果也没有提供IP和端口参数，则询问用户
         ip, port = get_user_input()
         BOOK_TITLE = "history"
     
@@ -343,6 +467,10 @@ def main():
         input("按回车键退出...")
         sys.exit(1)
     
+    # 处理电子书文件
+    epub_path = args.epub if args.epub else (config.get('epub_path') if config else None)
+    CURRENT_BOOK_PATH = setup_epub_file(epub_path, BOOK_TITLE, reader_dir)
+    
     # 创建历史记录目录
     history_dir = get_history_dir()
     print(f"历史记录目录: {history_dir}")
@@ -359,17 +487,23 @@ def main():
         print(f"服务器启动在 http://{display_ip}:{port}")
         print(f"服务目录: {reader_dir}")
         print(f"当前书籍: {BOOK_TITLE}")
+        print(f"电子书路径: {CURRENT_BOOK_PATH}")
         print("正在打开浏览器...")
-        print("按 Ctrl+C 停止服务器")
+        print("按 ESC 键优雅地退出服务器")
         
         # 自动打开浏览器
         webbrowser.open(f"http://{display_ip}:{port}")
         
+        # 启动键盘监听线程（ESC键退出）
+        keyboard_thread = threading.Thread(target=keyboard_listener, args=(httpd, reader_dir), daemon=False)
+        keyboard_thread.start()
+        
         try:
             # 启动服务器
             httpd.serve_forever()
+            print("服务器已优雅地停止")
         except KeyboardInterrupt:
-            print("\n服务器已停止")
+            print("\n收到Ctrl+C，强制停止服务器")
         except Exception as e:
             print(f"\n服务器错误: {e}")
 
