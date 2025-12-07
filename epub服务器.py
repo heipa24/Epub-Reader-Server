@@ -8,6 +8,8 @@ import argparse
 import shutil
 import threading
 import time
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -39,6 +41,85 @@ def get_config():
         print(f"读取配置文件失败: {e}")
     
     return None
+
+def get_book_title_from_file(epub_path, reader_dir):
+    """从电子书文件中获取书名（以reader目录为起点解析相对路径）"""
+    # 将路径转换为相对于reader目录的绝对路径
+    epub_path = Path(epub_path)
+    if not epub_path.is_absolute():
+        epub_path = reader_dir / epub_path
+    
+    CONTAINER_PATH = "META-INF/container.xml"
+    
+    def _local_name(tag):
+        if tag is None:
+            return ""
+        return tag.split('}')[-1] if '}' in tag else tag
+    
+    def _text_of(elem):
+        if elem is None:
+            return ''
+        return ''.join(elem.itertext()).strip()
+    
+    try:
+        with zipfile.ZipFile(epub_path, 'r') as z:
+            try:
+                container_data = z.read(CONTAINER_PATH)
+            except KeyError:
+                return Path(epub_path).stem
+            
+            container_root = ET.fromstring(container_data)
+            rootfile = None
+            for el in container_root.iter():
+                if _local_name(el.tag).lower() == 'rootfile':
+                    rootfile = el
+                    break
+            
+            if rootfile is None:
+                return Path(epub_path).stem
+            
+            opf_path = rootfile.get('full-path')
+            if not opf_path:
+                return Path(epub_path).stem
+            
+            try:
+                opf_data = z.read(opf_path)
+            except KeyError:
+                names = {n.lower(): n for n in z.namelist()}
+                key = opf_path.lower()
+                if key in names:
+                    opf_data = z.read(names[key])
+                else:
+                    return Path(epub_path).stem
+            
+            opf_root = ET.fromstring(opf_data)
+            metadata = None
+            for el in opf_root.iter():
+                if _local_name(el.tag).lower() == 'metadata':
+                    metadata = el
+                    break
+            
+            if metadata is None:
+                return Path(epub_path).stem
+            
+            for child in metadata:
+                if _local_name(child.tag).lower() == 'title':
+                    text = _text_of(child)
+                    if text:
+                        return text
+            
+            for el in opf_root.findall('.//'):
+                if _local_name(el.tag).lower() == 'title':
+                    text = _text_of(el)
+                    if text:
+                        return text
+            
+            return Path(epub_path).stem
+    except zipfile.BadZipFile:
+        return Path(epub_path).stem
+    except Exception as e:
+        print(f"从电子书提取书名失败: {e}")
+        return Path(epub_path).stem
 
 def get_history_dir():
     """获取历史记录目录"""
@@ -140,7 +221,7 @@ def setup_epub_file(epub_path, book_title, reader_dir):
     
     # 如果是相对路径
     else:
-        # 检查文件是否存在
+        # 检查文件是否存在（以reader目录为起点）
         full_path = reader_dir / epub_path
         if full_path.exists():
             print(f"使用电子书: {full_path}")
@@ -148,6 +229,28 @@ def setup_epub_file(epub_path, book_title, reader_dir):
         else:
             print(f"电子书不存在: {full_path}")
             return "epub/book.epub"
+
+def validate_epub_path(epub_path, reader_dir):
+    """验证epub路径是否有效（以reader目录为起点）"""
+    if not epub_path:
+        return False, "路径为空"
+    
+    epub_path = Path(epub_path)
+    
+    # 如果是绝对路径
+    if epub_path.is_absolute():
+        if epub_path.exists() and epub_path.is_file():
+            return True, epub_path
+        else:
+            return False, f"文件不存在: {epub_path}"
+    
+    # 如果是相对路径（以reader目录为起点）
+    else:
+        full_path = reader_dir / epub_path
+        if full_path.exists() and full_path.is_file():
+            return True, full_path
+        else:
+            return False, f"文件不存在: {full_path}"
 
 def cleanup_temp_dir(reader_dir):
     """清理临时目录"""
@@ -343,7 +446,7 @@ def is_packaged():
 def get_user_input():
     """获取用户输入（仅在独立运行时使用）"""
     # 获取服务器IP
-    server_ip = input("请输入服务器IP（直接回车为localhost）: ").strip()
+    server_ip = input("请输入服务器IP（直接回车为127.0.0.1）: ").strip()
     if not server_ip:
         server_ip = "127.0.0.1"
     
@@ -359,6 +462,28 @@ def get_user_input():
         server_port = 10086
     
     return server_ip, server_port
+
+def get_epub_path_from_user(reader_dir):
+    """从用户输入获取epub路径，以reader目录为起点验证路径有效性"""
+    while True:
+        epub_path_input = input("请输入ePub电子书路径（直接回车为epub\\book.epub）: ").strip()
+        
+        # 移除可能包裹的双引号
+        epub_path_input = epub_path_input.strip('"')
+        
+        if not epub_path_input:
+            print("路径为epub\\book.epub")
+            epub_path_input = "epub\\book.epub"
+        
+        # 验证路径有效性（以reader目录为起点）
+        is_valid, result = validate_epub_path(epub_path_input, reader_dir)
+        
+        if is_valid:
+            print(f"找到电子书文件: {result}")
+            return epub_path_input
+        else:
+            print(f"错误: {result}")
+            print("请重新输入有效的电子书路径")
 
 def keyboard_listener(httpd, reader_dir):
     """监听键盘输入，ESC键退出"""
@@ -424,15 +549,62 @@ def main():
     if is_packaged():
         config = get_config()
     
-    # 设置书名（优先级：命令行参数 > 配置文件 > 默认值）
+    # 获取reader目录路径
+    reader_dir = get_resource_path("reader")
+    
+    # 检查reader目录是否存在
+    if not reader_dir.exists():
+        print(f"错误: 找不到reader目录: {reader_dir}")
+        print("请确保reader目录已正确嵌入")
+        input("按回车键退出...")
+        sys.exit(1)
+    
+    # 确定epub路径（优先级：命令行参数 > 配置文件 > 用户输入）
+    epub_path = None
+    if args.epub:
+        epub_path = args.epub
+        print(f"使用命令行指定的电子书路径: {epub_path}")
+        
+        # 验证路径有效性
+        is_valid, result = validate_epub_path(epub_path, reader_dir)
+        if not is_valid:
+            print(f"警告: {result}")
+            print("将使用默认电子书路径")
+            epub_path = None
+    
+    if epub_path is None and config and config.get('epub_path'):
+        epub_path = config['epub_path']
+        print(f"使用配置文件中的电子书路径: {epub_path}")
+        
+        # 验证路径有效性
+        is_valid, result = validate_epub_path(epub_path, reader_dir)
+        if not is_valid:
+            print(f"警告: {result}")
+            print("将使用默认电子书路径")
+            epub_path = None
+    
+    if epub_path is None and not is_packaged():
+        # 调试模式下，如果命令行和配置文件都没有指定epub路径，则从用户输入获取
+        epub_path = get_epub_path_from_user(reader_dir)
+    
+    # 确定书名（优先级：命令行参数 > 从epub文件提取 > 配置文件 > 默认值）
     if args.title:
         BOOK_TITLE = args.title
         print(f"使用命令行指定的书名: {BOOK_TITLE}")
+    elif epub_path:
+        # 尝试从epub文件中提取书名（以reader目录为起点）
+        try:
+            BOOK_TITLE = get_book_title_from_file(epub_path, reader_dir)
+            print(f"从电子书文件中提取的书名: {BOOK_TITLE}")
+        except Exception as e:
+            print(f"从电子书提取书名失败: {e}")
+            BOOK_TITLE = Path(epub_path).stem
     elif config and config.get('book_title'):
         BOOK_TITLE = config['book_title']
     elif is_packaged():
         BOOK_TITLE = "history"
     else:
+        # 调试模式下，如果都没有提供书名，则使用默认值
         BOOK_TITLE = "history"
     
     # 获取IP和端口（优先级：命令行参数 > 配置文件 > 默认值）
@@ -449,17 +621,6 @@ def main():
     else:
         # 调试模式下，如果也没有提供IP和端口参数，则询问用户
         ip, port = get_user_input()
-        BOOK_TITLE = "history"
-    
-    # 获取reader目录路径
-    reader_dir = get_resource_path("reader")
-    
-    # 检查reader目录是否存在
-    if not reader_dir.exists():
-        print(f"错误: 找不到reader目录: {reader_dir}")
-        print("请确保reader目录已正确嵌入")
-        input("按回车键退出...")
-        sys.exit(1)
     
     # 检查index.html是否存在
     if not (reader_dir / "index.html").exists():
@@ -468,7 +629,6 @@ def main():
         sys.exit(1)
     
     # 处理电子书文件
-    epub_path = args.epub if args.epub else (config.get('epub_path') if config else None)
     CURRENT_BOOK_PATH = setup_epub_file(epub_path, BOOK_TITLE, reader_dir)
     
     # 创建历史记录目录

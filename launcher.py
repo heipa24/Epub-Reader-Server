@@ -86,6 +86,30 @@ def clean_filename(filename):
     clean_name = clean_name.strip().strip('.')
     return clean_name if clean_name else "unknown_book"
 
+# def setup_staging_directory(epub_path, book_title, script_dir):
+#     """
+#     设置暂存目录并复制文件
+#     返回复制后的文件相对路径
+#     """
+#     # 清理书名用于文件名
+#     clean_title = clean_filename(book_title)
+#     target_filename = f"{clean_title}.epub"
+    
+#     # 确保reader/epub/staging目录存在
+#     reader_staging_dir = script_dir / "reader" / "epub" / "staging"
+#     reader_staging_dir.mkdir(parents=True, exist_ok=True)
+    
+#     # 复制到reader/epub/staging/
+#     target_path = reader_staging_dir / target_filename
+#     try:
+#         shutil.copy2(epub_path, target_path)
+#         print(f"已复制电子书到: {target_path}")
+#         return f"epub/staging/{target_filename}"
+#     except Exception as e:
+#         print(f"复制到reader/staging失败: {e}")
+#         input("按回车键退出……")
+#         exit(1)
+
 def setup_staging_directory(epub_path, book_title, script_dir):
     """
     设置暂存目录并复制文件
@@ -178,7 +202,7 @@ def generate_batch_script(book_title, epub_path, ip, port, script_dir):
     
     content = f"""@echo off
 chcp 65001 >nul
-python --title "{book_title}" --epub "{epub_path}" --ip {ip} --port {port}
+python epub服务器.py --title "{book_title}" --epub "{epub_path}" --ip {ip} --port {port}
 """
     
     try:
@@ -256,7 +280,7 @@ def get_user_input():
             break
     
     # 获取IP地址
-    ip = input("请输入服务器IP（直接回车为localhost）: ").strip()
+    ip = input("请输入服务器IP（直接回车为127.0.0.1）: ").strip()
     if not ip:
         ip = "127.0.0.1"
     
