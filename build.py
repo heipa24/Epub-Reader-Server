@@ -8,6 +8,8 @@ import shutil
 import json
 import random
 from pathlib import Path
+import zipfile
+import xml.etree.ElementTree as ET
 
 def check_requirements():
     """检查必要的文件和目录是否存在"""
@@ -87,22 +89,66 @@ def get_user_input():
                 print(f"错误: 替换epub文件失败: {e}")
                 return None
             
-            # 尝试使用ebooklib获取书名
-            book_title = None
-            try:
-                # 动态导入ebooklib
-                import ebooklib
-                from ebooklib import epub
-                book = epub.read_epub(str(epub_source_path))
-                # 尝试从DC元数据中获取标题
-                title_items = book.get_metadata('DC', 'title')
-                if title_items:
-                    book_title = title_items[0][0]  # 取第一个标题
-                else:
-                    book_title = None
-            except Exception as e:
-                print(f"警告: 无法使用ebooklib获取书名: {e}")
-            
+            # 使用 parse_epub_title.py 的 get_epub_title 获取书名
+            def get_epub_title(epub_path):
+                CONTAINER_PATH = "META-INF/container.xml"
+                def _local_name(tag):
+                    if tag is None:
+                        return ""
+                    return tag.split('}')[-1] if '}' in tag else tag
+                def _text_of(elem):
+                    if elem is None:
+                        return ''
+                    return ''.join(elem.itertext()).strip()
+                try:
+                    with zipfile.ZipFile(epub_path, 'r') as z:
+                        try:
+                            container_data = z.read(CONTAINER_PATH)
+                        except KeyError:
+                            return None
+                        container_root = ET.fromstring(container_data)
+                        rootfile = None
+                        for el in container_root.iter():
+                            if _local_name(el.tag).lower() == 'rootfile':
+                                rootfile = el
+                                break
+                        if rootfile is None:
+                            return None
+                        opf_path = rootfile.get('full-path')
+                        if not opf_path:
+                            return None
+                        try:
+                            opf_data = z.read(opf_path)
+                        except KeyError:
+                            names = {n.lower(): n for n in z.namelist()}
+                            key = opf_path.lower()
+                            if key in names:
+                                opf_data = z.read(names[key])
+                            else:
+                                return None
+                        opf_root = ET.fromstring(opf_data)
+                        metadata = None
+                        for el in opf_root.iter():
+                            if _local_name(el.tag).lower() == 'metadata':
+                                metadata = el
+                                break
+                        if metadata is None:
+                            return None
+                        for child in metadata:
+                            if _local_name(child.tag).lower() == 'title':
+                                text = _text_of(child)
+                                if text:
+                                    return text
+                        for el in opf_root.findall('.//'):
+                            if _local_name(el.tag).lower() == 'title':
+                                text = _text_of(el)
+                                if text:
+                                    return text
+                        return None
+                except zipfile.BadZipFile:
+                    return None
+
+            book_title = get_epub_title(str(epub_source_path))
             if not book_title:
                 book_title = input("请输入书名: ").strip()
         else:

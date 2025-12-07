@@ -4,6 +4,8 @@ import random
 import shutil
 import argparse
 from pathlib import Path
+import zipfile
+import xml.etree.ElementTree as ET
 
 def get_script_dir():
     """获取脚本所在目录"""
@@ -15,19 +17,63 @@ def get_script_dir():
         return Path(__file__).parent
 
 def get_book_title_from_file(epub_path):
-    """使用ebooklib从电子书文件中获取书名"""
+    """使用从电子书文件中获取书名"""
+    CONTAINER_PATH = "META-INF/container.xml"
+    def _local_name(tag):
+        if tag is None:
+            return ""
+        return tag.split('}')[-1] if '}' in tag else tag
+    def _text_of(elem):
+        if elem is None:
+            return ''
+        return ''.join(elem.itertext()).strip()
     try:
-        from ebooklib import epub
-        book = epub.read_epub(epub_path)
-        title = book.get_metadata('DC', 'title')
-        if title:
-            return title[0][0]
-        else:
-            # 如果没有标题，使用文件名（不含扩展名）
+        with zipfile.ZipFile(epub_path, 'r') as z:
+            try:
+                container_data = z.read(CONTAINER_PATH)
+            except KeyError:
+                return Path(epub_path).stem
+            container_root = ET.fromstring(container_data)
+            rootfile = None
+            for el in container_root.iter():
+                if _local_name(el.tag).lower() == 'rootfile':
+                    rootfile = el
+                    break
+            if rootfile is None:
+                return Path(epub_path).stem
+            opf_path = rootfile.get('full-path')
+            if not opf_path:
+                return Path(epub_path).stem
+            try:
+                opf_data = z.read(opf_path)
+            except KeyError:
+                names = {n.lower(): n for n in z.namelist()}
+                key = opf_path.lower()
+                if key in names:
+                    opf_data = z.read(names[key])
+                else:
+                    return Path(epub_path).stem
+            opf_root = ET.fromstring(opf_data)
+            metadata = None
+            for el in opf_root.iter():
+                if _local_name(el.tag).lower() == 'metadata':
+                    metadata = el
+                    break
+            if metadata is None:
+                return Path(epub_path).stem
+            for child in metadata:
+                if _local_name(child.tag).lower() == 'title':
+                    text = _text_of(child)
+                    if text:
+                        return text
+            for el in opf_root.findall('.//'):
+                if _local_name(el.tag).lower() == 'title':
+                    text = _text_of(el)
+                    if text:
+                        return text
             return Path(epub_path).stem
-    except Exception as e:
-        print(f"无法从电子书获取标题: {e}")
-        return None
+    except zipfile.BadZipFile:
+        return Path(epub_path).stem
 
 def clean_filename(filename):
     """清理文件名中的非法字符"""
