@@ -131,8 +131,8 @@ def setup_staging_directory(epub_path, book_title, script_dir):
             return f"epub/staging/{target_filename}"
         except Exception as e:
             print(f"复制到reader/staging失败: {e}")
-            # 如果失败，尝试方案2
             return setup_staging_directory_fallback(epub_path, book_title, script_dir)
+
     else:
         # 方案2: 复制到脚本目录/staging/并创建符号链接
         return setup_staging_directory_fallback(epub_path, book_title, script_dir)
@@ -188,8 +188,16 @@ def setup_staging_directory_fallback(epub_path, book_title, script_dir):
             print(f"警告: 符号链接可能未正确工作，未找到 {check_file}")
     except Exception as e:
         print(f"创建符号链接失败: {e}")
-        print("请手动创建符号链接或使用其他方法")
-    
+        # 直接创建目录并复制文件
+        reader_staging_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(target_path, reader_staging_dir / target_filename)
+            print(f"已直接复制电子书到: {reader_staging_dir / target_filename}")
+            shutil.rmtree(script_staging_dir)
+            print(f"已清理无效的目录: {script_staging_dir}")
+        except Exception as copy_error:
+            print(f"复制电子书到目标目录失败: {copy_error}")
+            return None
     return f"epub/staging/{target_filename}"
 
 def generate_batch_script(book_title, epub_path, ip, port, script_dir):

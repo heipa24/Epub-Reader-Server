@@ -133,7 +133,7 @@ def setup_staging_directory_fallback(script_dir):
             print(f"警告: 符号链接可能未正确工作，未找到 {check_file}")
     except Exception as e:
         print(f"创建符号链接失败: {e}")
-        print("请手动创建符号链接或使用其他方法")
+        print("请手动创建交接点或符号链接")
 
 def get_user_input():
     """获取用户输入"""
