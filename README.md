@@ -26,7 +26,7 @@ powershell -Command "$zip='file.zip'; Invoke-WebRequest -Uri https://github.com/
 cd Epub-Reader-Server-master
 ```
 
-##### 安装了powershell7(基于.NET Core,支持Windows/Linux/macOS)
+##### 安装了PowerShell Core(PowerShell6及以上)
 
 ```bash
 pwsh -Command "$zip='file.zip'; Invoke-WebRequest -Uri https://github.com/heipa24/Epub-Reader-Server/archive/refs/heads/master.zip -OutFile $zip; Expand-Archive -Path $zip -DestinationPath $PWD -Force; Remove-Item $zip"
@@ -47,8 +47,6 @@ call "%cd%\打包为bat.bat"
 call "%cd%\{书名}.bat"
 ```
 
-#### 4.其它设备打开浏览器访问`http://{输入的ip}:{输入的端口号}/`开始阅读自己的epub电子书
-
 ### 在windows使用(打包为exe)
 
 #### 2.运行`打包为exe.bat`根据提示输入书名,ip,端口号,获得`{书名}.exe`
@@ -60,7 +58,7 @@ call "%cd%\打包为exe.bat"
 #### 3.运行`{书名}.exe`放行windows防火墙,浏览器会自动启动,会使用在`打包为exe.bat`配置的书名,ip,端口号
 
 ```cmd
-call "%cd%\{输入的书名}.exe"
+call "%cd%\{书名}.exe"
 ```
 
 ##
@@ -83,7 +81,7 @@ python3 launcher.py
 
 ### 注意
 
-- 在Linux/macOS使用不一定准确,作者即没吃过猪肉也没见过猪跑所以这部分完全交给GitHub Copilot
+- 在Linux/macOS使用不一定准确,因为这部分被完全交给GitHub Copilot
 
 - `{书名}.exe`会在所在文件夹生成History文件夹用于记录历史记录,在History文件夹下有`{书名}.json`文件记录单本书的阅读记录,通过json文件名区分不同书,**请确保书名唯一避免不同书进度会相互干扰**
 
@@ -91,8 +89,13 @@ python3 launcher.py
 
 - **本仓库不适用于多人同时阅读相同的电子书**,否则进度会相互干扰,更适合一个人在不同设备上同步阅读
 
-- **如果要移动仓库目录则检查\reader\epub\staging\.reparse_point文件是否存在,如果存在则(2选1)**
+- **如果要移动仓库目录则检查`\reader\epub\staging\.reparse_point`文件是否存在,如果存在则(2选1)**
 
-1. 删除.reparse_point文件后删除`\reader\epub\staging\`目录,之后将`\staging\`目录复制到`\reader\epub\staging\`(会影响打包为exe)
+1. 先将`.reparse_point`文件删除后删除`\reader\epub\staging\`目录,之后将`\staging\`目录复制到`\reader\epub\staging\`(影响打包)
 
 2. 删除`\reader\epub\staging\`后在`\reader\epub\staging\`创建交接点或符号链接指向`\staging\`
+
+- 这是因为创建启动脚本会检查目录`\reader\epub\staging\`是否存在
+- 如果存在则将选择的epub文件复制到`\reader\epub\staging\`目录下
+- 不存在则创建交接点或符号链接`\reader\epub\staging\`指向`\staging\`目录,并创建`\staging\.reparse_point`,后检查`\reader\epub\staging\.reparse_point`是否存在
+- 在打包为exe前会检查`\reader\epub\staging\.reparse_point`是否存在,存在则删除`\reader\epub\staging\`,在打包完成后恢复交接点或符号链接
