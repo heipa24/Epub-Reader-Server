@@ -33,7 +33,7 @@ pwsh -Command "$zip='file.zip'; iwr -Uri https://github.com/heipa24/Epub-Reader-
 cd Epub-Reader-Server-master
 ```
 
-#### 第2步:生成 /在windows生成可执行文件/在Linux,macOS生成启动脚本
+#### 第2步:生成启动脚本/生成应用程序
 
 ##### 在windows生成启动脚本:运行`打包为bat.bat`根据提示输入书名,ip,端口号,获得`{书名}.bat`
 
