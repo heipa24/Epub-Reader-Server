@@ -6,6 +6,10 @@ import argparse
 from pathlib import Path
 import zipfile
 import xml.etree.ElementTree as ET
+import subprocess
+import base64
+import ctypes
+import platform
 
 def get_script_dir():
     """获取脚本所在目录"""
@@ -172,10 +176,16 @@ def setup_staging_directory_fallback(epub_path, book_title, script_dir):
             except subprocess.CalledProcessError:
                 # 交接点失败，尝试符号链接
                 reader_staging_dir.unlink(missing_ok=True)
-                os.symlink(script_staging_dir, reader_staging_dir, target_is_directory=True)
+                success_win = create_symlink_with_admin(script_staging_dir, reader_staging_dir, target_is_directory=True)
+                if not success_win:
+                    input("创建符号链接失败,按回车键退出……")
+                    exit(1)                    
                 print(f"已创建符号链接: {reader_staging_dir} -> {script_staging_dir}")
         else:  # Unix-like系统
-            os.symlink(script_staging_dir, reader_staging_dir, target_is_directory=True)
+            success_unix = create_symlink_with_admin(script_staging_dir, reader_staging_dir, target_is_directory=True)
+            if not success_unix:
+                input("创建符号链接失败,按回车键退出……")
+                exit(1)
             print(f"已创建符号链接: {reader_staging_dir} -> {script_staging_dir}")
         
         # 创建.reparse_point文件并检查存在性
@@ -199,6 +209,89 @@ def setup_staging_directory_fallback(epub_path, book_title, script_dir):
             print(f"复制电子书到目标目录失败: {copy_error}")
             return None
     return f"epub/staging/{target_filename}"
+
+def is_admin():
+    """检查当前是否以管理员权限运行"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def create_symlink_with_admin(source, target, target_is_directory=True):
+    """
+    创建符号链接，如果权限不足则请求管理员权限
+    """
+    try:
+        # 尝试直接创建符号链接
+        os.symlink(source, target, target_is_directory=target_is_directory)
+        print(f"已创建符号链接: {target} -> {source}")
+        return True
+        
+    except PermissionError:
+        # 如果是因为权限问题失败，尝试以管理员权限运行
+        if platform.system() == "Windows":
+            print("权限不足，正在尝试以管理员权限创建符号链接...")
+            
+            # 构建PowerShell命令
+            ps_command = f"""
+            $source = '{source}'
+            $target = '{target}'
+            
+            if (Test-Path $target) {{
+                Write-Host "目标已存在: $target" -ForegroundColor Yellow
+                exit 1
+            }}
+            
+            try {{
+                New-Item -ItemType SymbolicLink -Path $target -Target $source
+                Write-Host "已创建符号链接: $target -> $source" -ForegroundColor Green
+                exit 0
+            }} catch {{
+                Write-Host "创建符号链接失败: $($_.Exception.Message)" -ForegroundColor Red
+                exit 2
+            }}
+            """
+            
+            # 编码PowerShell命令
+            encoded_command = base64.b64encode(ps_command.encode('utf-16le')).decode()
+            
+            # 构建完整的PowerShell命令
+            full_ps_command = [
+                'powershell',
+                '-ExecutionPolicy', 'Bypass',
+                '-EncodedCommand', encoded_command
+            ]
+            
+            # 运行PowerShell以管理员权限执行
+            try:
+                # 检查当前是否已经是管理员
+                if is_admin():
+                    # 如果已经是管理员，直接执行
+                    result = subprocess.run(full_ps_command, capture_output=True, text=True, encoding='utf-8')
+                else:
+                    # 否则请求UAC提升
+                    runas_command = [
+                        'powershell',
+                        '-Command',
+                        f'Start-Process powershell -ArgumentList \'-ExecutionPolicy Bypass -Command "{ps_command.replace(chr(34), chr(92)+chr(34))}\' -Verb RunAs'
+                    ]
+                    result = subprocess.run(runas_command, capture_output=True, text=True, encoding='utf-8')
+                
+                if result.returncode == 0:
+                    print("符号链接创建成功")
+                    return True
+                else:
+                    print(f"符号链接创建失败: {result.stderr}")
+                    return False
+                    
+            except Exception as e:
+                print(f"执行管理员命令时出错: {e}")
+                return False
+                
+        else:
+            # 非Windows系统
+            print("权限不足，请使用sudo或管理员权限运行此脚本")
+            return False
 
 def generate_batch_script(book_title, epub_path, ip, port, script_dir):
     """生成Windows批处理脚本"""
