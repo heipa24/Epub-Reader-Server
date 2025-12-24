@@ -35,25 +35,25 @@ cd Epub-Reader-Server-master
 
 #### 第2步:生成启动脚本/生成应用程序
 
-##### 在windows生成启动脚本:运行`打包为bat.bat`根据提示输入书名,ip,端口号,获得`{书名}.bat`
+##### 在windows生成启动脚本:执行`打包为bat.bat`根据提示输入书名,ip,端口号,获得`{书名}.bat`
 
 ```cmd
 call "%cd%\打包为bat.bat"
 ```
 
-##### 在windows生成应用程序:运行`打包为exe.bat`根据提示输入书名,ip,端口号,获得`{书名}.exe`
+##### 在windows生成应用程序:执行`打包为exe.bat`根据提示输入书名,ip,端口号,获得`{书名}.exe`
 
 ```cmd
 call "%cd%\打包为exe.bat"
 ```
 
-##### 在在Linux/macOS生成启动脚本:运行`打包为exe.bat`根据提示输入书名,ip,端口号,获得`{书名}.sh`
+##### 在在Linux/macOS生成启动脚本:执行`launcher.py`根据提示输入书名,ip,端口号,获得`{书名}.sh`
 
 ```bash
 python3 launcher.py
 ```
 
-#### 第3步:运行`{书名}.bat`/`{书名}.exe`/`{书名}.sh`浏览器会自动启动,会使用在`第2步`配置的书名,ip,端口号
+#### 第3步:执行`{书名}.bat`/`{书名}.exe`/`{书名}.sh`浏览器会自动启动,会使用在`第2步`配置的书名,ip,端口号
 
 ```cmd
 call "%cd%\{书名}.bat"
